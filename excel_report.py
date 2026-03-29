@@ -367,6 +367,200 @@ def _hoja_pareto(wb, pareto_df, pareto_stats):
 
 
 # ---------------------------------------------------------------------------
+# HOJA COMPARACION — resumen multi-sucursal
+# ---------------------------------------------------------------------------
+
+def _hoja_comparacion(wb, df_comp, metas):
+    """Hoja con tabla resumen comparativa de todas las sucursales."""
+    ws = wb.active
+    ws.title = 'Comparacion'
+    ws.sheet_view.showGridLines = False
+
+    # Titulo
+    n_suc = len(df_comp)
+    ws.merge_cells('A1:I1')
+    t = ws['A1']
+    t.value = 'Comparacion de Sucursales — Grupo Petri'
+    t.font = Font(name='Arial', bold=True, size=14, color=COLOR_HEADER)
+    t.alignment = Alignment(horizontal='center', vertical='center')
+    t.fill = _fill(COLOR_TITULO_BG)
+    ws.row_dimensions[1].height = 36
+
+    # Rango de fechas (tomar del primer meta disponible)
+    fecha_info = ''
+    if metas:
+        m0 = next(iter(metas.values()))
+        fd = m0.get('fecha_desde', '')
+        fh = m0.get('fecha_hasta', '')
+        if fd or fh:
+            fecha_info = 'Periodo: %s a %s' % (fd, fh)
+    ws.merge_cells('A2:I2')
+    ws['A2'].value = fecha_info or 'Generado con Generador de Reportes — Grupo Petri'
+    ws['A2'].font = Font(name='Arial', italic=True, size=9, color='888888')
+    ws['A2'].alignment = Alignment(horizontal='center')
+
+    # Tabla comparativa
+    headers = [
+        'Sucursal', 'Total Ventas ($)', 'Total Costo ($)',
+        'Rentabilidad ($)', 'Margen Global (%)',
+        'Productos', 'Con Ventas', 'N° Pareto 80%', '% Prod. Pareto 80%'
+    ]
+    fmt_map = {2: FMT_MONEDA, 3: FMT_MONEDA, 4: FMT_MONEDA,
+               5: FMT_PORCENTAJE, 6: FMT_ENTERO, 7: FMT_ENTERO,
+               8: FMT_ENTERO, 9: FMT_PORCENTAJE}
+
+    rows_data = []
+    for _, row in df_comp.iterrows():
+        rows_data.append((
+            row['sucursal'],
+            row['total_ventas'],
+            row['total_costo'],
+            row['total_rentabilidad'],
+            row['margen_global'],
+            row['cantidad_productos'],
+            row['cantidad_activos'],
+            row['pareto_n80'],
+            row['pareto_pct80'],
+        ))
+
+    _write_table(ws, headers, rows_data, start_row=4, fmt_map=fmt_map)
+
+    # Fila de totales
+    total_row = 4 + 1 + n_suc
+    ws.cell(row=total_row, column=1, value='TOTAL').font = Font(name='Arial', bold=True, size=10, color=COLOR_HEADER_FONT)
+    ws.cell(row=total_row, column=1).fill = _fill(COLOR_HEADER)
+    ws.cell(row=total_row, column=1).alignment = Alignment(horizontal='center', vertical='center')
+    ws.cell(row=total_row, column=1).border = _border_thin()
+
+    sum_cols = {
+        2: df_comp['total_ventas'].sum(),
+        3: df_comp['total_costo'].sum(),
+        4: df_comp['total_rentabilidad'].sum(),
+        6: df_comp['cantidad_productos'].sum(),
+        7: df_comp['cantidad_activos'].sum(),
+    }
+    # Margen global total
+    tv = df_comp['total_ventas'].sum()
+    tr = df_comp['total_rentabilidad'].sum()
+    margen_total = (tr / tv * 100) if tv > 0 else 0
+    sum_cols[5] = margen_total
+
+    for col, val in sum_cols.items():
+        c = ws.cell(row=total_row, column=col, value=val)
+        c.fill = _fill(COLOR_HEADER)
+        c.font = Font(name='Arial', bold=True, size=10, color=COLOR_HEADER_FONT)
+        c.border = _border_thin()
+        c.number_format = fmt_map.get(col, '')
+        c.alignment = Alignment(horizontal='right', vertical='center')
+    for col in [8, 9]:
+        c = ws.cell(row=total_row, column=col, value='')
+        c.fill = _fill(COLOR_HEADER)
+        c.border = _border_thin()
+
+    # Grafico de barras comparativo (Total Ventas por sucursal)
+    chart = BarChart()
+    chart.type = 'col'
+    chart.grouping = 'clustered'
+    chart.title = 'Ventas por Sucursal'
+    chart.y_axis.title = '$ Ventas'
+    chart.x_axis.title = 'Sucursal'
+    chart.style = 10
+    chart.width = 28
+    chart.height = 14
+
+    data_ref = Reference(ws, min_col=2, max_col=4,
+                         min_row=4, max_row=4 + n_suc)
+    cats_ref = Reference(ws, min_col=1, min_row=5, max_row=4 + n_suc)
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats_ref)
+
+    ws.add_chart(chart, 'A%d' % (total_row + 3))
+
+    # Ancho de columnas
+    ws.column_dimensions['A'].width = 22
+    for col_letter in ['B', 'C', 'D']:
+        ws.column_dimensions[col_letter].width = 18
+    for col_letter in ['E', 'F', 'G', 'H', 'I']:
+        ws.column_dimensions[col_letter].width = 14
+
+
+def _hoja_sucursal_resumen(wb, nombre, analisis, metadata):
+    """Crea una hoja de resumen para una sucursal individual dentro del workbook de comparacion."""
+    # Truncar nombre a 31 chars (limite de Excel para nombres de hoja)
+    sheet_name = nombre[:31]
+    ws = wb.create_sheet(sheet_name)
+    ws.sheet_view.showGridLines = False
+
+    resumen = analisis['resumen']
+    fecha_d = metadata.get('fecha_desde', '')
+    fecha_h = metadata.get('fecha_hasta', '')
+    titulo = 'Sucursal: %s — %s a %s' % (nombre, fecha_d, fecha_h)
+
+    ws.merge_cells('A1:D1')
+    t = ws['A1']
+    t.value = titulo
+    t.font = Font(name='Arial', bold=True, size=13, color=COLOR_HEADER)
+    t.alignment = Alignment(horizontal='center', vertical='center')
+    t.fill = _fill(COLOR_TITULO_BG)
+    ws.row_dimensions[1].height = 32
+
+    # Metricas
+    metricas = [
+        ('Total Ventas (Precio)',    resumen['total_ventas'],       FMT_MONEDA),
+        ('Total Costos',             resumen['total_costo'],        FMT_MONEDA),
+        ('Rentabilidad Total',       resumen['total_rentabilidad'], FMT_MONEDA),
+        ('Margen Global',            resumen['margen_global'],      FMT_PORCENTAJE),
+        ('Cantidad de Productos',    resumen['cantidad_productos'], FMT_ENTERO),
+        ('Productos con ventas > 0', resumen['cantidad_activos'],   FMT_ENTERO),
+    ]
+
+    ws.cell(row=3, column=1, value='Metrica').font = Font(name='Arial', bold=True, size=10, color=COLOR_HEADER_FONT)
+    ws.cell(row=3, column=1).fill = _fill(COLOR_HEADER)
+    ws.cell(row=3, column=1).alignment = Alignment(horizontal='center', vertical='center')
+    ws.cell(row=3, column=2, value='Valor').font = Font(name='Arial', bold=True, size=10, color=COLOR_HEADER_FONT)
+    ws.cell(row=3, column=2).fill = _fill(COLOR_HEADER)
+    ws.cell(row=3, column=2).alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[3].height = 22
+
+    for i, (label, val, fmt) in enumerate(metricas):
+        row = 4 + i
+        alternate = i % 2 == 1
+        c1 = ws.cell(row=row, column=1, value=label)
+        c2 = ws.cell(row=row, column=2, value=val)
+        c2.number_format = fmt
+        for c in [c1, c2]:
+            c.fill = _fill(COLOR_ALT_ROW if alternate else 'FFFFFF')
+            c.font = Font(name='Arial', size=10)
+            c.border = _border_thin()
+        c1.alignment = Alignment(horizontal='left', vertical='center')
+        c2.alignment = Alignment(horizontal='right', vertical='center')
+
+    # Top 5 por rentabilidad
+    top_row = 12
+    ws.merge_cells(start_row=top_row, start_column=1, end_row=top_row, end_column=4)
+    ws.cell(row=top_row, column=1, value='Top 5 — Mayor Rentabilidad').font = Font(
+        name='Arial', bold=True, size=10, color=COLOR_HEADER_FONT)
+    ws.cell(row=top_row, column=1).fill = _fill(COLOR_HEADER)
+    ws.cell(row=top_row, column=1).alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[top_row].height = 22
+
+    top5 = analisis.get('top_rentabilidad')
+    if top5 is not None and not top5.empty:
+        top5_headers = ['Codigo', 'Descripcion', 'Rentabilidad ($)', 'Margen (%)']
+        top5_fmt = {3: FMT_MONEDA, 4: FMT_PORCENTAJE}
+        top5_data = [
+            (r['codigo'], r['descripcion'], r['rentabilidad'], r['margen'])
+            for _, r in top5.head(5).iterrows()
+        ]
+        _write_table(ws, top5_headers, top5_data, start_row=top_row + 1, fmt_map=top5_fmt)
+
+    ws.column_dimensions['A'].width = 30
+    ws.column_dimensions['B'].width = 50
+    ws.column_dimensions['C'].width = 20
+    ws.column_dimensions['D'].width = 15
+
+
+# ---------------------------------------------------------------------------
 # Funcion principal
 # ---------------------------------------------------------------------------
 
@@ -389,8 +583,32 @@ def generar_excel(analisis, metadata):
               'unidades', 'Unidades Vendidas', 'Top 15 — Productos mas Vendidos')
     _hoja_top(wb, 'Top Rentabilidad', analisis['top_rentabilidad'],
               'rentabilidad', 'Rentabilidad ($)', 'Top 15 — Mayor Rentabilidad')
-    _hoja_margen_negativo(wb, analisis['margen_negativo'])
     _hoja_pareto(wb, analisis['pareto_df'], analisis['pareto_stats'])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def generar_excel_comparacion(datos, metas, df_comp):
+    """
+    Genera Excel comparativo multi-sucursal.
+    datos: {sucursal_name: analisis_dict}
+    metas: {sucursal_name: meta_dict}
+    df_comp: DataFrame con columnas sucursal, total_ventas, total_costo,
+             total_rentabilidad, margen_global, cantidad_productos,
+             cantidad_activos, pareto_n80, pareto_pct80
+    """
+    wb = Workbook()
+
+    # Hoja 1: Comparacion general
+    _hoja_comparacion(wb, df_comp, metas)
+
+    # Una hoja de resumen por sucursal
+    for nombre, analisis in datos.items():
+        meta = metas.get(nombre, {})
+        _hoja_sucursal_resumen(wb, nombre, analisis, meta)
 
     buf = io.BytesIO()
     wb.save(buf)

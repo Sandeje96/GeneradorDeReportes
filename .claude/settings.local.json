@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(py -3 -c \"import excel_report; print\\(dir\\(excel_report\\)\\)\")"
     ]
   }
 }

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 app.py — App Streamlit para analisis de ABC de Productos (Grupo Petri).
+Soporta un solo PDF (analisis individual) o multiples PDFs (comparacion de sucursales).
 """
 import io
+import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -10,7 +12,7 @@ import plotly.graph_objects as go
 
 from extractor import extract_pdf
 from analyzer import analizar
-from excel_report import generar_excel
+from excel_report import generar_excel, generar_excel_comparacion
 
 # ---------------------------------------------------------------------------
 # Config
@@ -22,31 +24,30 @@ st.set_page_config(
     initial_sidebar_state='expanded',
 )
 
-# Paleta
-C_AZUL    = '#1B3A5C'
-C_DORADO  = '#C8A84E'
-C_VERDE   = '#27AE60'
-C_ROJO    = '#E74C3C'
-C_FONDO   = '#F8F9FA'
+C_AZUL   = '#1B3A5C'
+C_DORADO = '#C8A84E'
+C_VERDE  = '#27AE60'
+C_ROJO   = '#E74C3C'
+
+COLORES_SUCURSALES = [
+    '#1B3A5C', '#C8A84E', '#27AE60', '#E74C3C',
+    '#8E44AD', '#2E86C1', '#D35400', '#1ABC9C',
+]
 
 # ---------------------------------------------------------------------------
 # Estilos globales
 # ---------------------------------------------------------------------------
 st.markdown("""
 <style>
-  [data-testid="stMetricValue"] { font-size: 1.4rem; font-weight: 700; }
+  [data-testid="stMetricValue"] { font-size: 1.35rem; font-weight: 700; }
   .section-title {
       background: #1B3A5C; color: white;
       padding: 8px 16px; border-radius: 6px;
       margin: 20px 0 12px 0; font-size: 1.05rem; font-weight: 700;
   }
-  .negative-alert {
-      background: #FDECEA; border-left: 4px solid #E74C3C;
-      padding: 10px 16px; border-radius: 4px; margin: 8px 0;
-  }
-  .ok-banner {
-      background: #D5F5E3; border-left: 4px solid #27AE60;
-      padding: 10px 16px; border-radius: 4px;
+  .comp-card {
+      background: #F8F9FA; border: 1px solid #DDE; border-radius: 8px;
+      padding: 14px 16px; margin-bottom: 8px;
   }
   div[data-testid="stDataFrame"] { font-size: 0.82rem; }
 </style>
@@ -57,91 +58,66 @@ st.markdown("""
 # Helpers de formato
 # ---------------------------------------------------------------------------
 
-def fmt_moneda(v):
+def fmt_m(v):
     return f"$ {v:,.2f}"
-
 
 def fmt_pct(v):
     return f"{v:.1f}%"
 
-
 def _seccion(titulo):
     st.markdown(f'<div class="section-title">📌 {titulo}</div>', unsafe_allow_html=True)
 
-
-def _tabla_top(df, value_col, value_fmt):
-    """Muestra un DataFrame de top-N con formateo."""
-    display = df.copy()
-    display['descripcion'] = display['descripcion'].str[:50]
-    fmt_cols = {}
-    for c in ['costo', 'precio', 'rentabilidad']:
-        if c in display.columns:
-            fmt_cols[c] = fmt_moneda
-    for c in ['margen', 'participacion']:
-        if c in display.columns:
-            fmt_cols[c] = fmt_pct
-    if value_col in fmt_cols:
-        pass  # ya incluido
-    st.dataframe(
-        display.style.format(fmt_cols),
-        use_container_width=True,
-        hide_index=True,
-    )
+def _nombre_sucursal(uploaded_file, meta):
+    """Nombre de la sucursal: del nombre de archivo, luego del metadato."""
+    nombre = os.path.splitext(uploaded_file.name)[0].strip()
+    return nombre if nombre else meta.get('sucursal', 'Sucursal')
 
 
 # ---------------------------------------------------------------------------
-# Graficos Plotly
+# Carga y cache
+# ---------------------------------------------------------------------------
+
+@st.cache_data(show_spinner=False)
+def _cargar_pdf(pdf_bytes):
+    buf = io.BytesIO(pdf_bytes)
+    df, meta, totals = extract_pdf(buf, verbose=False)
+    return df, meta, totals
+
+
+# ---------------------------------------------------------------------------
+# Graficos comunes (modo individual)
 # ---------------------------------------------------------------------------
 
 def _grafico_barras_h(df, x_col, y_col, titulo, x_label, color=C_AZUL, n=15):
-    """Grafico de barras horizontal con los top N."""
     df_plot = df.head(n).copy()
     df_plot['desc_corta'] = df_plot[y_col].str[:45]
     fig = px.bar(
-        df_plot.iloc[::-1],  # invertir para que el mayor quede arriba
-        x=x_col,
-        y='desc_corta',
-        orientation='h',
+        df_plot.iloc[::-1],
+        x=x_col, y='desc_corta', orientation='h',
         title=titulo,
         labels={x_col: x_label, 'desc_corta': ''},
         color_discrete_sequence=[color],
     )
     fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font_family='Arial',
-        title_font_size=14,
-        title_font_color=C_AZUL,
+        plot_bgcolor='white', paper_bgcolor='white',
+        font_family='Arial', title_font_size=14, title_font_color=C_AZUL,
         xaxis=dict(gridcolor='#EEEEEE', tickformat=',.0f'),
         yaxis=dict(tickfont=dict(size=10)),
-        margin=dict(l=10, r=20, t=40, b=20),
-        height=420,
+        margin=dict(l=10, r=20, t=40, b=20), height=420,
     )
     return fig
 
 
 def _grafico_pareto(pareto_df, n=50):
-    """Grafico de barras + linea acumulativa (Pareto)."""
     df_plot = pareto_df.head(n).copy()
     df_plot['desc_corta'] = df_plot['descripcion'].str[:30]
-
     fig = go.Figure()
-    fig.add_bar(
-        x=df_plot['desc_corta'],
-        y=df_plot['precio'],
-        name='Precio venta',
-        marker_color=C_AZUL,
-        opacity=0.85,
-    )
-    fig.add_scatter(
-        x=df_plot['desc_corta'],
-        y=df_plot['participacion_acum'],
-        name='Acumulado %',
-        yaxis='y2',
-        line=dict(color=C_DORADO, width=2),
-        mode='lines+markers',
-        marker=dict(size=4),
-    )
+    fig.add_bar(x=df_plot['desc_corta'], y=df_plot['precio'],
+                name='Precio venta', marker_color=C_AZUL, opacity=0.85)
+    fig.add_scatter(x=df_plot['desc_corta'], y=df_plot['participacion_acum'],
+                    name='Acumulado %', yaxis='y2',
+                    line=dict(color=C_DORADO, width=2),
+                    mode='lines+markers', marker=dict(size=4))
     fig.update_layout(
         title='Analisis Pareto — Top %d Productos' % n,
         title_font_color=C_AZUL,
@@ -150,43 +126,520 @@ def _grafico_pareto(pareto_df, n=50):
         yaxis2=dict(title='Acumulado %', overlaying='y', side='right',
                     range=[0, 105], tickformat='.0f', ticksuffix='%'),
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font_family='Arial',
-        height=420,
-        margin=dict(l=10, r=10, t=50, b=80),
+        plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
+        height=420, margin=dict(l=10, r=10, t=50, b=80),
     )
-    # Linea de referencia 80%
     fig.add_hline(y=80, line_dash='dash', line_color=C_ROJO,
-                  yref='y2', annotation_text='80%',
-                  annotation_position='right')
+                  yref='y2', annotation_text='80%', annotation_position='right')
     return fig
 
 
 def _grafico_dona(distribucion):
-    """Grafico de dona por rangos de margen."""
     labels = [d['rango'] for d in distribucion]
     values = [d['cantidad'] for d in distribucion]
-    colors = [C_ROJO, C_DORADO, C_VERDE, C_AZUL, '#8E44AD']
     fig = go.Figure(go.Pie(
-        labels=labels,
-        values=values,
-        hole=0.45,
-        marker_colors=colors,
-        textinfo='percent+label',
-        textfont_size=11,
+        labels=labels, values=values, hole=0.45,
+        marker_colors=[C_ROJO, C_DORADO, C_VERDE, C_AZUL, '#8E44AD'],
+        textinfo='percent+label', textfont_size=11,
     ))
     fig.update_layout(
-        title='Distribucion por Rango de Margen',
-        title_font_color=C_AZUL,
-        showlegend=True,
-        legend=dict(orientation='v', font=dict(size=10)),
-        paper_bgcolor='white',
-        font_family='Arial',
-        height=380,
-        margin=dict(l=10, r=10, t=50, b=10),
+        title='Distribucion por Rango de Margen', title_font_color=C_AZUL,
+        showlegend=True, legend=dict(orientation='v', font=dict(size=10)),
+        paper_bgcolor='white', font_family='Arial',
+        height=380, margin=dict(l=10, r=10, t=50, b=10),
     )
     return fig
+
+
+def _tabla_top(df):
+    display = df.copy()
+    display['descripcion'] = display['descripcion'].str[:50]
+    fmt = {}
+    for c in ['costo', 'precio', 'rentabilidad']:
+        if c in display.columns: fmt[c] = fmt_m
+    for c in ['margen', 'participacion']:
+        if c in display.columns: fmt[c] = fmt_pct
+    st.dataframe(display.style.format(fmt), use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------------------------
+# MODO INDIVIDUAL — reporte de una sola sucursal
+# ---------------------------------------------------------------------------
+
+def _modo_individual(uploaded, sucursal_nombre):
+    with st.spinner(f'Procesando {sucursal_nombre}...'):
+        df, meta, totals = _cargar_pdf(uploaded.read())
+
+    if df.empty:
+        st.error('No se pudieron extraer datos. Verificar que sea un ABC de Productos valido.')
+        return
+
+    analisis = analizar(df, meta, totals)
+    res = analisis['resumen']
+
+    fecha_d = meta.get('fecha_desde', '')
+    fecha_h = meta.get('fecha_hasta', '')
+
+    st.title(f'📊 Reporte de Ventas — {sucursal_nombre}')
+    st.caption(f'Período: {fecha_d} al {fecha_h}  |  {res["cantidad_productos"]} productos')
+
+    # --- Sección 1: Resumen ---
+    _seccion('Resumen Ejecutivo')
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric('Total Ventas', fmt_m(res['total_ventas']))
+    c2.metric('Total Costos', fmt_m(res['total_costo']))
+    c3.metric('Rentabilidad', fmt_m(res['total_rentabilidad']))
+    c4.metric('Margen Global', fmt_pct(res['margen_global']))
+
+    c5, c6, c7 = st.columns(3)
+    if res.get('mas_vendido'):
+        mv = res['mas_vendido']
+        c5.metric('Más vendido', mv['descripcion'][:35],
+                  delta=f"{mv['unidades']:,.0f} un.", delta_color='off')
+    if res.get('mas_rentable'):
+        mr = res['mas_rentable']
+        c6.metric('Más rentable', mr['descripcion'][:35],
+                  delta=fmt_m(mr['rentabilidad']), delta_color='normal')
+    if res.get('mas_facturado'):
+        mf = res['mas_facturado']
+        c7.metric('Mayor facturación', mf['descripcion'][:35],
+                  delta=fmt_m(mf['precio']), delta_color='normal')
+
+    # --- Sección 2: Top Unidades ---
+    _seccion('Top 15 — Productos más Vendidos (unidades)')
+    ct, cg = st.columns([1, 1.4])
+    with ct: _tabla_top(analisis['top_unidades'])
+    with cg:
+        st.plotly_chart(_grafico_barras_h(
+            analisis['top_unidades'], 'unidades', 'descripcion',
+            'Top 15 por Unidades', 'Unidades', C_AZUL), use_container_width=True)
+
+    # --- Sección 3: Top Rentabilidad ---
+    _seccion('Top 15 — Productos por Rentabilidad ($)')
+    ct, cg = st.columns([1, 1.4])
+    with ct: _tabla_top(analisis['top_rentabilidad'])
+    with cg:
+        st.plotly_chart(_grafico_barras_h(
+            analisis['top_rentabilidad'], 'rentabilidad', 'descripcion',
+            'Top 15 por Rentabilidad', 'Rentabilidad ($)', C_VERDE), use_container_width=True)
+
+    # --- Sección 4: Top Precio ---
+    _seccion('Top 15 — Productos por Precio de Venta Total')
+    ct, cg = st.columns([1, 1.4])
+    with ct: _tabla_top(analisis['top_precio'])
+    with cg:
+        st.plotly_chart(_grafico_barras_h(
+            analisis['top_precio'], 'precio', 'descripcion',
+            'Top 15 por Facturación', 'Precio ($)', C_DORADO), use_container_width=True)
+
+    # --- Sección 5: Pareto ---
+    _seccion('Análisis Pareto — Regla 80/20')
+    ps = analisis['pareto_stats']
+    n80, pct80, tot = ps.get('n_productos_80pct', 0), ps.get('pct_productos_para_80', 0), ps.get('total_productos', 0)
+    st.info(f'**{n80} productos** ({pct80:.1f}% del total) generan el **80% de la facturación**. '
+            f'Los {tot - n80} restantes ({100 - pct80:.1f}%) generan el 20% restante.')
+    st.plotly_chart(_grafico_pareto(analisis['pareto_df'], n=min(60, tot)), use_container_width=True)
+
+    # --- Sección 6: Distribución margen ---
+    _seccion('Distribución por Rango de Margen')
+    cg, ct = st.columns([1.3, 1])
+    with cg: st.plotly_chart(_grafico_dona(analisis['distribucion_margen']), use_container_width=True)
+    with ct:
+        df_dist = pd.DataFrame(analisis['distribucion_margen'])[
+            ['rango', 'cantidad', 'pct_cantidad', 'precio_total', 'pct_ventas']]
+        df_dist.columns = ['Rango', 'Productos', '% Prod.', 'Ventas ($)', '% Ventas']
+        st.dataframe(df_dist.style.format(
+            {'% Prod.': '{:.1f}%', 'Ventas ($)': '$ {:,.2f}', '% Ventas': '{:.1f}%'}),
+            use_container_width=True, hide_index=True)
+
+    # --- Sección 7: Tabla completa ---
+    _seccion('Tabla Completa de Productos')
+    df_full = analisis['df_completo'].copy()
+    c_busq, c_filt = st.columns([2, 1])
+    with c_busq:
+        busqueda = st.text_input('🔍 Buscar (descripción o código)', key='busq_ind')
+    with c_filt:
+        filtro = st.selectbox('Filtrar por margen', ['Todos', 'Solo positivos', '> 100%'], key='filt_ind')
+    if busqueda:
+        mask = (df_full['descripcion'].str.contains(busqueda, case=False, na=False) |
+                df_full['codigo'].str.contains(busqueda, case=False, na=False))
+        df_full = df_full[mask]
+    if filtro == 'Solo positivos': df_full = df_full[df_full['margen'] >= 0]
+    elif filtro == '> 100%': df_full = df_full[df_full['margen'] > 100]
+
+    st.caption(f'Mostrando {len(df_full)} de {len(analisis["df_completo"])} productos')
+    st.dataframe(df_full.style.format({
+        'unidades': '{:,.2f}', 'costo': '$ {:,.2f}', 'precio': '$ {:,.2f}',
+        'rentabilidad': '$ {:,.2f}', 'margen': '{:.2f}%', 'participacion': '{:.2f}%',
+    }), use_container_width=True, hide_index=True, height=420)
+
+    # --- Sección 8: Exportar ---
+    _seccion('📥 Exportar a Excel')
+    st.write('Reporte individual con 5 hojas: Resumen, Datos Completos, Top Vendidos, Top Rentabilidad, Análisis Pareto.')
+    excel_bytes = generar_excel(analisis, meta)
+    nombre = f'reporte_{sucursal_nombre.replace(" ", "_")}_{fecha_d.replace("/", "-")}_{fecha_h.replace("/", "-")}.xlsx'
+    st.download_button('⬇️ Descargar Reporte Excel', data=excel_bytes,
+                       file_name=nombre,
+                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                       use_container_width=True, type='primary')
+
+    with st.expander('🔍 Validación de extracción'):
+        st.json({'productos': int(len(df)),
+                 'sum_costo': float(round(df['costo'].sum(), 2)),
+                 'sum_precio': float(round(df['precio'].sum(), 2)),
+                 'totals_pdf': {k: float(v) for k, v in totals.items()}})
+
+
+# ---------------------------------------------------------------------------
+# MODO COMPARACION — multiples sucursales
+# ---------------------------------------------------------------------------
+
+def _graf_comp_barras(df_comp, y_col, titulo, y_label, fmt_tick='$,.0f'):
+    """Barra horizontal comparando sucursales para una metrica."""
+    fig = px.bar(
+        df_comp.sort_values(y_col),
+        x=y_col, y='sucursal', orientation='h',
+        title=titulo,
+        labels={y_col: y_label, 'sucursal': ''},
+        color='sucursal',
+        color_discrete_sequence=COLORES_SUCURSALES,
+        text=y_col,
+    )
+    fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+    fig.update_layout(
+        plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
+        title_font_color=C_AZUL, showlegend=False,
+        xaxis=dict(tickformat=fmt_tick, gridcolor='#EEEEEE'),
+        margin=dict(l=10, r=40, t=40, b=20), height=max(280, len(df_comp) * 55 + 80),
+    )
+    return fig
+
+
+def _graf_comp_agrupado(df_comp, cols, titulo):
+    """Barras agrupadas: ventas, costo, rentabilidad por sucursal."""
+    fig = go.Figure()
+    labels = {'total_ventas': 'Ventas', 'total_costo': 'Costo', 'total_rentabilidad': 'Rentabilidad'}
+    colors = [C_AZUL, C_ROJO, C_VERDE]
+    for col, color in zip(cols, colors):
+        fig.add_bar(name=labels.get(col, col), x=df_comp['sucursal'],
+                    y=df_comp[col], marker_color=color,
+                    text=df_comp[col].apply(lambda v: f'${v/1e6:.1f}M'),
+                    textposition='outside')
+    fig.update_layout(
+        barmode='group', title=titulo, title_font_color=C_AZUL,
+        plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
+        yaxis=dict(tickformat='$,.0f', gridcolor='#EEEEEE'),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02),
+        margin=dict(l=10, r=10, t=50, b=20),
+        height=420,
+    )
+    return fig
+
+
+def _graf_comp_margen(df_comp):
+    """Barras de margen global por sucursal."""
+    fig = px.bar(
+        df_comp.sort_values('margen_global'),
+        x='margen_global', y='sucursal', orientation='h',
+        title='Margen Global por Sucursal (%)',
+        labels={'margen_global': 'Margen Global (%)', 'sucursal': ''},
+        color='sucursal', color_discrete_sequence=COLORES_SUCURSALES,
+        text='margen_global',
+    )
+    fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+    fig.update_layout(
+        plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
+        title_font_color=C_AZUL, showlegend=False,
+        xaxis=dict(ticksuffix='%', gridcolor='#EEEEEE'),
+        margin=dict(l=10, r=60, t=40, b=20),
+        height=max(280, len(df_comp) * 55 + 80),
+    )
+    return fig
+
+
+def _graf_top_productos_comp(datos, metrica, label, n=10):
+    """
+    Grafico de top productos comparando sucursales.
+    Muestra los N productos mas relevantes del total combinado, con barra por sucursal.
+    """
+    # Unir todos los DataFrames con columna 'sucursal'
+    dfs = []
+    for suc, an in datos.items():
+        top = an['df_completo'].nlargest(50, metrica)[['descripcion', metrica]].copy()
+        top['sucursal'] = suc
+        dfs.append(top)
+    df_all = pd.concat(dfs, ignore_index=True)
+
+    # Top N productos por suma total
+    top_productos = (df_all.groupby('descripcion')[metrica].sum()
+                     .nlargest(n).index.tolist())
+    df_plot = df_all[df_all['descripcion'].isin(top_productos)].copy()
+    df_plot['desc_corta'] = df_plot['descripcion'].str[:35]
+
+    fig = px.bar(
+        df_plot, x=metrica, y='desc_corta', color='sucursal',
+        orientation='h', barmode='group',
+        title=f'Top {n} Productos por {label} — Comparacion por Sucursal',
+        labels={metrica: label, 'desc_corta': '', 'sucursal': 'Sucursal'},
+        color_discrete_sequence=COLORES_SUCURSALES,
+    )
+    fig.update_layout(
+        plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
+        title_font_color=C_AZUL,
+        xaxis=dict(tickformat=',.0f', gridcolor='#EEEEEE'),
+        yaxis=dict(tickfont=dict(size=9)),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02),
+        margin=dict(l=10, r=20, t=60, b=20),
+        height=max(400, n * 45 + 100),
+    )
+    return fig
+
+
+def _graf_dist_margen_comp(datos):
+    """Barras apiladas de distribucion de margen por sucursal."""
+    rangos = ['< 0% (perdida)', '0% - 30%', '30% - 60%', '60% - 100%', '> 100%']
+    colors = [C_ROJO, C_DORADO, '#F0B429', C_VERDE, C_AZUL]
+    fig = go.Figure()
+    for rango, color in zip(rangos, colors):
+        y_vals = []
+        for suc, an in datos.items():
+            dist = {d['rango']: d['pct_cantidad'] for d in an['distribucion_margen']}
+            y_vals.append(dist.get(rango, 0))
+        fig.add_bar(name=rango, x=list(datos.keys()), y=y_vals,
+                    marker_color=color, text=[f'{v:.0f}%' for v in y_vals],
+                    textposition='inside')
+    fig.update_layout(
+        barmode='stack',
+        title='Distribución de Márgenes por Sucursal (% productos)',
+        title_font_color=C_AZUL,
+        plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
+        yaxis=dict(ticksuffix='%', gridcolor='#EEEEEE'),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02),
+        margin=dict(l=10, r=10, t=60, b=20), height=400,
+    )
+    return fig
+
+
+def _modo_comparacion(archivos_datos):
+    """
+    archivos_datos: lista de (uploaded_file, df, meta, totals)
+    """
+    # Construir analisis por sucursal
+    datos = {}   # {nombre_sucursal: analisis_dict}
+    metas = {}
+    for uploaded, df, meta, totals in archivos_datos:
+        nombre = _nombre_sucursal(uploaded, meta)
+        datos[nombre] = analizar(df, meta, totals)
+        metas[nombre] = meta
+
+    sucursales = list(datos.keys())
+    periodo = metas[sucursales[0]].get('fecha_desde', '') + ' al ' + metas[sucursales[0]].get('fecha_hasta', '')
+
+    # Tabla resumen para graficos
+    filas_comp = []
+    for suc, an in datos.items():
+        r = an['resumen']
+        filas_comp.append({
+            'sucursal': suc,
+            'total_ventas': r['total_ventas'],
+            'total_costo': r['total_costo'],
+            'total_rentabilidad': r['total_rentabilidad'],
+            'margen_global': r['margen_global'],
+            'cantidad_productos': r['cantidad_productos'],
+            'cantidad_activos': r['cantidad_activos'],
+            'pareto_n80': an['pareto_stats'].get('n_productos_80pct', 0),
+            'pareto_pct80': an['pareto_stats'].get('pct_productos_para_80', 0),
+        })
+    df_comp = pd.DataFrame(filas_comp)
+
+    # ================================================================
+    # TABS: Comparacion + una por sucursal
+    # ================================================================
+    tab_names = ['🏢 Comparación General'] + [f'📍 {s}' for s in sucursales]
+    tabs = st.tabs(tab_names)
+
+    # ----------------------------------------------------------------
+    # TAB 0 — Comparacion General
+    # ----------------------------------------------------------------
+    with tabs[0]:
+        st.title(f'📊 Comparación de Sucursales — Grupo Petri')
+        st.caption(f'Período: {periodo}  |  {len(sucursales)} sucursales cargadas')
+
+        # -- Métricas resumen --
+        _seccion('Resumen por Sucursal')
+        tabla_res = df_comp[['sucursal', 'total_ventas', 'total_costo',
+                              'total_rentabilidad', 'margen_global', 'cantidad_activos']].copy()
+        tabla_res.columns = ['Sucursal', 'Ventas ($)', 'Costo ($)',
+                              'Rentabilidad ($)', 'Margen Global', 'Productos activos']
+
+        # Totales
+        totales_row = {
+            'Sucursal': '⚡ TOTAL',
+            'Ventas ($)': df_comp['total_ventas'].sum(),
+            'Costo ($)': df_comp['total_costo'].sum(),
+            'Rentabilidad ($)': df_comp['total_rentabilidad'].sum(),
+            'Margen Global': (df_comp['total_rentabilidad'].sum() /
+                              abs(df_comp['total_costo'].sum()) * 100
+                              if df_comp['total_costo'].sum() != 0 else 0),
+            'Productos activos': df_comp['cantidad_activos'].sum(),
+        }
+        tabla_res = pd.concat([tabla_res, pd.DataFrame([totales_row])], ignore_index=True)
+
+        st.dataframe(
+            tabla_res.style
+              .format({'Ventas ($)': '$ {:,.2f}', 'Costo ($)': '$ {:,.2f}',
+                       'Rentabilidad ($)': '$ {:,.2f}', 'Margen Global': '{:.2f}%',
+                       'Productos activos': '{:,.0f}'})
+              .apply(lambda row: ['font-weight:bold; background:#EAF4FB'] * len(row)
+                     if row['Sucursal'] == '⚡ TOTAL' else [''] * len(row), axis=1),
+            use_container_width=True, hide_index=True,
+        )
+
+        # -- Gráficos de métricas principales --
+        _seccion('Ventas, Costo y Rentabilidad por Sucursal')
+        st.plotly_chart(
+            _graf_comp_agrupado(df_comp, ['total_ventas', 'total_costo', 'total_rentabilidad'],
+                                'Comparación: Ventas / Costo / Rentabilidad'),
+            use_container_width=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(_graf_comp_barras(df_comp, 'total_ventas',
+                'Ventas Totales por Sucursal ($)', 'Ventas ($)'),
+                use_container_width=True)
+        with c2:
+            st.plotly_chart(_graf_comp_margen(df_comp), use_container_width=True)
+
+        # -- Top productos comparados --
+        _seccion('Top 10 Productos por Facturación — Comparación entre Sucursales')
+        st.plotly_chart(_graf_top_productos_comp(datos, 'precio', 'Precio Venta ($)'),
+                        use_container_width=True)
+
+        _seccion('Top 10 Productos por Rentabilidad — Comparación entre Sucursales')
+        st.plotly_chart(_graf_top_productos_comp(datos, 'rentabilidad', 'Rentabilidad ($)'),
+                        use_container_width=True)
+
+        # -- Distribución de márgenes --
+        _seccion('Distribución de Márgenes por Sucursal')
+        c1, c2 = st.columns([1.6, 1])
+        with c1:
+            st.plotly_chart(_graf_dist_margen_comp(datos), use_container_width=True)
+        with c2:
+            # Tabla Pareto comparativa
+            pareto_comp = df_comp[['sucursal', 'pareto_n80', 'pareto_pct80']].copy()
+            pareto_comp.columns = ['Sucursal', 'Prods. para 80% ventas', '% del catálogo']
+            st.caption('**Análisis Pareto por Sucursal**')
+            st.dataframe(pareto_comp.style.format({'% del catálogo': '{:.1f}%'}),
+                         use_container_width=True, hide_index=True)
+
+        # -- Exportar Excel comparativo --
+        _seccion('📥 Exportar Reporte Comparativo a Excel')
+        st.write('Excel con hoja de comparación general + hoja individual por sucursal.')
+        with st.spinner('Generando Excel...'):
+            xls_comp = generar_excel_comparacion(datos, metas, df_comp)
+        fecha_d0 = metas[sucursales[0]].get('fecha_desde', '').replace('/', '-')
+        fecha_h0 = metas[sucursales[0]].get('fecha_hasta', '').replace('/', '-')
+        st.download_button(
+            '⬇️ Descargar Reporte Comparativo Excel',
+            data=xls_comp,
+            file_name=f'comparacion_sucursales_{fecha_d0}_{fecha_h0}.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            use_container_width=True, type='primary',
+        )
+
+    # ----------------------------------------------------------------
+    # TABS individuales por sucursal
+    # ----------------------------------------------------------------
+    for i, (suc, tab) in enumerate(zip(sucursales, tabs[1:])):
+        an = datos[suc]
+        meta = metas[suc]
+        res = an['resumen']
+        color_suc = COLORES_SUCURSALES[i % len(COLORES_SUCURSALES)]
+
+        with tab:
+            st.subheader(f'📍 {suc}')
+            st.caption(f"Período: {meta.get('fecha_desde','')} al {meta.get('fecha_hasta','')} "
+                       f"| {res['cantidad_productos']} productos")
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric('Ventas', fmt_m(res['total_ventas']))
+            c2.metric('Costos', fmt_m(res['total_costo']))
+            c3.metric('Rentabilidad', fmt_m(res['total_rentabilidad']))
+            c4.metric('Margen', fmt_pct(res['margen_global']))
+
+            _seccion('Top 15 por Unidades')
+            ct, cg = st.columns([1, 1.4])
+            with ct: _tabla_top(an['top_unidades'])
+            with cg:
+                st.plotly_chart(_grafico_barras_h(
+                    an['top_unidades'], 'unidades', 'descripcion',
+                    f'Top 15 por Unidades — {suc}', 'Unidades', color_suc),
+                    use_container_width=True)
+
+            _seccion('Top 15 por Rentabilidad ($)')
+            ct, cg = st.columns([1, 1.4])
+            with ct: _tabla_top(an['top_rentabilidad'])
+            with cg:
+                st.plotly_chart(_grafico_barras_h(
+                    an['top_rentabilidad'], 'rentabilidad', 'descripcion',
+                    f'Top 15 por Rentabilidad — {suc}', 'Rentabilidad ($)', color_suc),
+                    use_container_width=True)
+
+            _seccion('Top 15 por Facturación ($)')
+            ct, cg = st.columns([1, 1.4])
+            with ct: _tabla_top(an['top_precio'])
+            with cg:
+                st.plotly_chart(_grafico_barras_h(
+                    an['top_precio'], 'precio', 'descripcion',
+                    f'Top 15 por Facturación — {suc}', 'Precio ($)', color_suc),
+                    use_container_width=True)
+
+            _seccion('Análisis Pareto')
+            ps = an['pareto_stats']
+            n80, pct80, tot = ps.get('n_productos_80pct',0), ps.get('pct_productos_para_80',0), ps.get('total_productos',0)
+            st.info(f'**{n80} productos** ({pct80:.1f}%) generan el 80% de la facturación.')
+            st.plotly_chart(_grafico_pareto(an['pareto_df'], n=min(60, tot)),
+                            use_container_width=True)
+
+            _seccion('Distribución por Rango de Margen')
+            cg, ct = st.columns([1.3, 1])
+            with cg: st.plotly_chart(_grafico_dona(an['distribucion_margen']), use_container_width=True)
+            with ct:
+                df_dist = pd.DataFrame(an['distribucion_margen'])[
+                    ['rango', 'cantidad', 'pct_cantidad', 'precio_total', 'pct_ventas']]
+                df_dist.columns = ['Rango', 'Prods.', '% Prods.', 'Ventas ($)', '% Ventas']
+                st.dataframe(df_dist.style.format(
+                    {'% Prods.': '{:.1f}%', 'Ventas ($)': '$ {:,.2f}', '% Ventas': '{:.1f}%'}),
+                    use_container_width=True, hide_index=True)
+
+            _seccion('Tabla Completa')
+            df_full = an['df_completo'].copy()
+            c_b, c_f = st.columns([2, 1])
+            with c_b:
+                busq = st.text_input('🔍 Buscar', key=f'busq_{suc}')
+            with c_f:
+                filt = st.selectbox('Filtrar margen', ['Todos', 'Solo positivos', '> 100%'], key=f'filt_{suc}')
+            if busq:
+                mask = (df_full['descripcion'].str.contains(busq, case=False, na=False) |
+                        df_full['codigo'].str.contains(busq, case=False, na=False))
+                df_full = df_full[mask]
+            if filt == 'Solo positivos': df_full = df_full[df_full['margen'] >= 0]
+            elif filt == '> 100%': df_full = df_full[df_full['margen'] > 100]
+            st.caption(f'{len(df_full)} de {len(an["df_completo"])} productos')
+            st.dataframe(df_full.style.format({
+                'unidades': '{:,.2f}', 'costo': '$ {:,.2f}', 'precio': '$ {:,.2f}',
+                'rentabilidad': '$ {:,.2f}', 'margen': '{:.2f}%', 'participacion': '{:.2f}%',
+            }), use_container_width=True, hide_index=True, height=380)
+
+            _seccion(f'📥 Exportar {suc}')
+            excel_ind = generar_excel(an, meta)
+            st.download_button(
+                f'⬇️ Descargar Excel — {suc}',
+                data=excel_ind,
+                file_name=f'reporte_{suc.replace(" ","_")}_{meta.get("fecha_desde","").replace("/","-")}.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                use_container_width=True, key=f'dl_{suc}',
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -202,15 +655,22 @@ def _sidebar():
             unsafe_allow_html=True,
         )
         st.markdown('---')
-        st.subheader('📂 Cargar PDF')
-        uploaded = st.file_uploader(
-            'Subir ABC de Productos (.pdf)',
+        st.subheader('📂 Cargar PDF(s)')
+        st.caption('Un PDF → reporte individual. Varios PDFs → comparación de sucursales.')
+        archivos = st.file_uploader(
+            'ABC de Productos (.pdf)',
             type=['pdf'],
-            help='PDF generado por el sistema de Grupo Petri',
+            accept_multiple_files=True,
+            help='El nombre del archivo se usa como nombre de sucursal.',
         )
+        if archivos:
+            st.markdown('**Archivos cargados:**')
+            for f in archivos:
+                nombre = os.path.splitext(f.name)[0]
+                st.markdown(f'- 📄 {nombre}')
         st.markdown('---')
-        st.caption('Generador de Reportes v1.0')
-    return uploaded
+        st.caption('Generador de Reportes v1.1')
+    return archivos
 
 
 # ---------------------------------------------------------------------------
@@ -224,253 +684,52 @@ def _pantalla_inicio():
       <h3 style="color:#555; font-weight:400;">Grupo Petri — ABC de Productos</h3>
       <hr style="border-color:{C_DORADO}; width:200px; margin:20px auto;">
       <p style="color:#666; font-size:1rem;">
-        Subí el PDF de <b>ABC de Productos</b> desde el panel lateral<br>
-        para generar el reporte completo con análisis visual y exportación a Excel.
+        <b>Un PDF</b> → Reporte individual completo de la sucursal.<br><br>
+        <b>Varios PDFs</b> → Comparación automática entre sucursales<br>
+        con tabs individuales por cada una.<br><br>
+        El nombre del archivo se usa como nombre de la sucursal.
       </p>
     </div>
     """, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
-# App principal
+# Main
 # ---------------------------------------------------------------------------
 
-@st.cache_data(show_spinner='Extrayendo datos del PDF...')
-def _cargar_pdf(pdf_bytes):
-    buf = io.BytesIO(pdf_bytes)
-    df, meta, totals = extract_pdf(buf, verbose=False)
-    return df, meta, totals
-
-
 def main():
-    uploaded = _sidebar()
+    archivos = _sidebar()
 
-    if uploaded is None:
+    if not archivos:
         _pantalla_inicio()
         return
 
-    # ------- Carga y extraccion -------
-    with st.spinner('Procesando PDF...'):
-        df, meta, totals = _cargar_pdf(uploaded.read())
+    # Cargar todos los PDFs
+    archivos_datos = []
+    errores = []
+    progress = st.progress(0, text='Procesando PDFs...')
+    for i, f in enumerate(archivos):
+        progress.progress((i + 1) / len(archivos), text=f'Procesando {f.name}...')
+        df, meta, totals = _cargar_pdf(f.read())
+        if df.empty:
+            errores.append(f.name)
+        else:
+            archivos_datos.append((f, df, meta, totals))
+    progress.empty()
 
-    if df.empty:
-        st.error('No se pudieron extraer datos del PDF. Verificar que sea un ABC de Productos valido.')
+    if errores:
+        st.warning(f'No se pudo procesar: {", ".join(errores)}')
+
+    if not archivos_datos:
+        st.error('No se pudo extraer datos de ningún PDF.')
         return
 
-    analisis = analizar(df, meta, totals)
-    res = analisis['resumen']
-
-    # ------- Encabezado del reporte -------
-    sucursal = meta.get('sucursal', 'Sucursal')
-    fecha_d  = meta.get('fecha_desde', '')
-    fecha_h  = meta.get('fecha_hasta', '')
-    st.title(f'📊 Reporte de Ventas — {sucursal}')
-    st.caption(f'Período: {fecha_d} al {fecha_h}  |  {res["cantidad_productos"]} productos en el sistema')
-
-    # ================================================================
-    # SECCION 1 — Resumen Ejecutivo
-    # ================================================================
-    _seccion('Resumen Ejecutivo')
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric('Total Ventas', fmt_moneda(res['total_ventas']))
-    c2.metric('Total Costos', fmt_moneda(res['total_costo']))
-    c3.metric('Rentabilidad Total', fmt_moneda(res['total_rentabilidad']))
-    c4.metric('Margen Global', fmt_pct(res['margen_global']))
-
-    c5, c6, c7 = st.columns(3)
-    if res.get('mas_vendido'):
-        mv = res['mas_vendido']
-        c5.metric('Producto mas vendido', mv['descripcion'][:35],
-                  delta=f"{mv['unidades']:,.0f} unidades",
-                  delta_color='off')
-    if res.get('mas_rentable'):
-        mr = res['mas_rentable']
-        c6.metric('Producto mas rentable', mr['descripcion'][:35],
-                  delta=fmt_moneda(mr['rentabilidad']),
-                  delta_color='normal')
-    if res.get('mas_facturado'):
-        mf = res['mas_facturado']
-        c7.metric('Mayor facturacion', mf['descripcion'][:35],
-                  delta=fmt_moneda(mf['precio']),
-                  delta_color='normal')
-
-    # ================================================================
-    # SECCION 2 — Top 15 por Unidades
-    # ================================================================
-    _seccion('Top 15 — Productos mas Vendidos (por unidades)')
-    top_u = analisis['top_unidades']
-    col_t, col_g = st.columns([1, 1.4])
-    with col_t:
-        _tabla_top(top_u, 'unidades', fmt_moneda)
-    with col_g:
-        fig = _grafico_barras_h(top_u, 'unidades', 'descripcion',
-                                'Top 15 Productos por Unidades Vendidas',
-                                'Unidades Vendidas', color=C_AZUL)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ================================================================
-    # SECCION 3 — Top 15 por Rentabilidad
-    # ================================================================
-    _seccion('Top 15 — Productos por Rentabilidad ($)')
-    top_r = analisis['top_rentabilidad']
-    col_t, col_g = st.columns([1, 1.4])
-    with col_t:
-        _tabla_top(top_r, 'rentabilidad', fmt_moneda)
-    with col_g:
-        fig = _grafico_barras_h(top_r, 'rentabilidad', 'descripcion',
-                                'Top 15 Productos por Rentabilidad',
-                                'Rentabilidad ($)', color=C_VERDE)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ================================================================
-    # SECCION 4 — Top 15 por Precio de Venta
-    # ================================================================
-    _seccion('Top 15 — Productos por Precio de Venta Total')
-    top_p = analisis['top_precio']
-    col_t, col_g = st.columns([1, 1.4])
-    with col_t:
-        _tabla_top(top_p, 'precio', fmt_moneda)
-    with col_g:
-        fig = _grafico_barras_h(top_p, 'precio', 'descripcion',
-                                'Top 15 Productos por Facturacion',
-                                'Precio de Venta ($)', color=C_DORADO)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ================================================================
-    # SECCION 5 — Pareto
-    # ================================================================
-    _seccion('Analisis Pareto — Regla 80/20')
-    pstats = analisis['pareto_stats']
-    n80 = pstats.get('n_productos_80pct', 0)
-    pct80 = pstats.get('pct_productos_para_80', 0)
-    total_p = pstats.get('total_productos', 0)
-
-    st.info(
-        f'**{n80} productos** ({pct80:.1f}% del total) generan el **80% de la facturación**. '
-        f'Los {total_p - n80} restantes ({100 - pct80:.1f}%) generan el 20% restante.'
-    )
-    fig_pareto = _grafico_pareto(analisis['pareto_df'], n=min(60, total_p))
-    st.plotly_chart(fig_pareto, use_container_width=True)
-
-    # ================================================================
-    # SECCION 6 — Margen Negativo
-    # ================================================================
-    _seccion('⚠️ Productos con Margen Negativo')
-    neg = analisis['margen_negativo']
-    if neg.empty:
-        st.markdown('<div class="ok-banner">✅ No hay productos con margen negativo en este período.</div>',
-                    unsafe_allow_html=True)
+    if len(archivos_datos) == 1:
+        uploaded, df, meta, totals = archivos_datos[0]
+        sucursal = _nombre_sucursal(uploaded, meta)
+        _modo_individual(uploaded, sucursal)
     else:
-        st.markdown(
-            f'<div class="negative-alert">🚨 Se detectaron <b>{len(neg)} productos</b> vendidos por debajo del costo.</div>',
-            unsafe_allow_html=True,
-        )
-        st.dataframe(
-            neg.style
-               .format({'costo': fmt_moneda, 'precio': fmt_moneda,
-                        'rentabilidad': fmt_moneda, 'margen': fmt_pct,
-                        'participacion': fmt_pct})
-               .map(lambda v: f'color:{C_ROJO}; font-weight:bold' if isinstance(v, float) and v < 0 else '',
-                    subset=['margen', 'rentabilidad']),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    # ================================================================
-    # SECCION 7 — Distribucion por Rango de Margen
-    # ================================================================
-    _seccion('Distribucion por Rango de Margen')
-    dist = analisis['distribucion_margen']
-    col_g, col_t = st.columns([1.3, 1])
-    with col_g:
-        st.plotly_chart(_grafico_dona(dist), use_container_width=True)
-    with col_t:
-        df_dist = pd.DataFrame(dist)
-        df_dist = df_dist[['rango', 'cantidad', 'pct_cantidad', 'precio_total', 'pct_ventas']]
-        df_dist.columns = ['Rango', 'Productos', '% Productos', 'Ventas ($)', '% Ventas']
-        st.dataframe(
-            df_dist.style.format({
-                '% Productos': '{:.1f}%',
-                'Ventas ($)': '$ {:,.2f}',
-                '% Ventas': '{:.1f}%',
-            }),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    # ================================================================
-    # SECCION 8 — Tabla Completa
-    # ================================================================
-    _seccion('Tabla Completa de Productos')
-    df_full = analisis['df_completo'].copy()
-
-    # Buscador
-    col_search, col_filter = st.columns([2, 1])
-    with col_search:
-        busqueda = st.text_input('🔍 Buscar producto (descripcion o codigo)', '')
-    with col_filter:
-        filtro_margen = st.selectbox('Filtrar por margen', [
-            'Todos', 'Solo negativos', 'Solo positivos', '> 100%'
-        ])
-
-    if busqueda:
-        mask = (df_full['descripcion'].str.contains(busqueda, case=False, na=False) |
-                df_full['codigo'].str.contains(busqueda, case=False, na=False))
-        df_full = df_full[mask]
-
-    if filtro_margen == 'Solo negativos':
-        df_full = df_full[df_full['margen'] < 0]
-    elif filtro_margen == 'Solo positivos':
-        df_full = df_full[df_full['margen'] >= 0]
-    elif filtro_margen == '> 100%':
-        df_full = df_full[df_full['margen'] > 100]
-
-    st.caption(f'Mostrando {len(df_full)} de {len(analisis["df_completo"])} productos')
-    st.dataframe(
-        df_full.style.format({
-            'unidades': '{:,.2f}',
-            'costo': '$ {:,.2f}',
-            'precio': '$ {:,.2f}',
-            'rentabilidad': '$ {:,.2f}',
-            'margen': '{:.2f}%',
-            'participacion': '{:.2f}%',
-        }),
-        use_container_width=True,
-        hide_index=True,
-        height=420,
-    )
-
-    # ================================================================
-    # SECCION 9 — Exportar Excel
-    # ================================================================
-    _seccion('📥 Exportar a Excel')
-    st.write('Descargá el reporte completo en formato Excel con 6 hojas: Resumen, Datos Completos, '
-             'Top Vendidos, Top Rentabilidad, Margen Negativo y Análisis Pareto.')
-
-    excel_bytes = generar_excel(analisis, meta)
-    nombre_archivo = 'reporte_%s_%s_%s.xlsx' % (
-        sucursal.replace(' ', '_'),
-        fecha_d.replace('/', '-'),
-        fecha_h.replace('/', '-'),
-    )
-    st.download_button(
-        label='⬇️ Descargar Reporte Excel',
-        data=excel_bytes,
-        file_name=nombre_archivo,
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        use_container_width=True,
-        type='primary',
-    )
-
-    # Validacion discreta
-    with st.expander('🔍 Validacion de extraccion'):
-        st.json({
-            'productos_extraidos': int(len(df)),
-            'sum_costo': float(round(df['costo'].sum(), 2)),
-            'sum_precio': float(round(df['precio'].sum(), 2)),
-            'sum_rentabilidad': float(round(df['rentabilidad'].sum(), 2)),
-            'totals_pdf': {k: float(v) for k, v in totals.items()},
-        })
+        _modo_comparacion(archivos_datos)
 
 
 if __name__ == '__main__':

@@ -362,6 +362,10 @@ def extract_pdf(pdf_path, verbose=True):
             marg = (rentab / abs(costo)) * 100
         # si costo == 0, marg queda como fue extraido (puede ser 0.00%)
 
+        # Margenes negativos se tratan como error del sistema — tomar valor absoluto
+        if marg is not None:
+            marg = abs(marg)
+
         records.append({
             'codigo': r['codigo'],
             'descripcion': r['descripcion'],
