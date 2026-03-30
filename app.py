@@ -170,9 +170,7 @@ def _tabla_top(df):
 # MODO INDIVIDUAL — reporte de una sola sucursal
 # ---------------------------------------------------------------------------
 
-def _modo_individual(uploaded, sucursal_nombre):
-    with st.spinner(f'Procesando {sucursal_nombre}...'):
-        df, meta, totals = _cargar_pdf(uploaded.read())
+def _modo_individual(uploaded, sucursal_nombre, df, meta, totals):
 
     if df.empty:
         st.error('No se pudieron extraer datos. Verificar que sea un ABC de Productos valido.')
@@ -731,7 +729,7 @@ def main():
     if len(archivos_datos) == 1:
         uploaded, df, meta, totals = archivos_datos[0]
         sucursal = _nombre_sucursal(uploaded, meta)
-        _modo_individual(uploaded, sucursal)
+        _modo_individual(uploaded, sucursal, df, meta, totals)
     else:
         _modo_comparacion(archivos_datos)
 
