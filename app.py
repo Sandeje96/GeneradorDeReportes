@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 from extractor import extract_pdf
 from analyzer import analizar
 from excel_report import generar_excel, generar_excel_comparacion
+from pdf_report import generar_pdf, generar_pdf_comparacion
 
 # ---------------------------------------------------------------------------
 # Config
@@ -276,14 +277,27 @@ def _modo_individual(uploaded, sucursal_nombre, df, meta, totals):
     }), use_container_width=True, hide_index=True, height=420)
 
     # --- Sección 8: Exportar ---
-    _seccion('📥 Exportar a Excel')
-    st.write('Reporte individual con 5 hojas: Resumen, Datos Completos, Top Vendidos, Top Rentabilidad, Análisis Pareto.')
-    excel_bytes = generar_excel(analisis, meta)
-    nombre = f'reporte_{sucursal_nombre.replace(" ", "_")}_{fecha_d.replace("/", "-")}_{fecha_h.replace("/", "-")}.xlsx'
-    st.download_button('⬇️ Descargar Reporte Excel', data=excel_bytes,
-                       file_name=nombre,
-                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                       use_container_width=True, type='primary')
+    _seccion('📥 Exportar Reporte')
+    nombre_base = f'reporte_{sucursal_nombre.replace(" ", "_")}_{fecha_d.replace("/", "-")}_{fecha_h.replace("/", "-")}'
+
+    col_xls, col_pdf = st.columns(2)
+
+    with col_xls:
+        st.write('**Excel** — 5 hojas: Resumen, Datos Completos, Top Vendidos, Top Rentabilidad, Análisis Pareto.')
+        excel_bytes = generar_excel(analisis, meta)
+        st.download_button('⬇️ Descargar Excel', data=excel_bytes,
+                           file_name=nombre_base + '.xlsx',
+                           mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                           use_container_width=True, type='primary')
+
+    with col_pdf:
+        st.write('**PDF** — Carátula, índice, KPIs, gráficos en hoja completa y tabla de datos.')
+        with st.spinner('Generando PDF...'):
+            pdf_bytes = generar_pdf(analisis, meta)
+        st.download_button('⬇️ Descargar PDF', data=pdf_bytes,
+                           file_name=nombre_base + '.pdf',
+                           mime='application/pdf',
+                           use_container_width=True, type='primary')
 
     with st.expander('🔍 Validación de extracción'):
         st.json({'productos': int(len(df)),
@@ -530,20 +544,37 @@ def _modo_comparacion(archivos_datos):
             st.dataframe(pareto_comp.style.format({'% del catálogo': '{:.1f}%'}),
                          use_container_width=True, hide_index=True)
 
-        # -- Exportar Excel comparativo --
-        _seccion('📥 Exportar Reporte Comparativo a Excel')
-        st.write('Excel con hoja de comparación general + hoja individual por sucursal.')
-        with st.spinner('Generando Excel...'):
-            xls_comp = generar_excel_comparacion(datos, metas, df_comp)
+        # -- Exportar --
+        _seccion('📥 Exportar Reporte Comparativo')
         fecha_d0 = metas[sucursales[0]].get('fecha_desde', '').replace('/', '-')
         fecha_h0 = metas[sucursales[0]].get('fecha_hasta', '').replace('/', '-')
-        st.download_button(
-            '⬇️ Descargar Reporte Comparativo Excel',
-            data=xls_comp,
-            file_name=f'comparacion_sucursales_{fecha_d0}_{fecha_h0}.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            use_container_width=True, type='primary',
-        )
+        nombre_base = f'comparacion_sucursales_{fecha_d0}_{fecha_h0}'
+
+        col_xls, col_pdf = st.columns(2)
+
+        with col_xls:
+            st.write('**Excel** — Hoja de comparación general + resumen individual por sucursal.')
+            with st.spinner('Generando Excel...'):
+                xls_comp = generar_excel_comparacion(datos, metas, df_comp)
+            st.download_button(
+                '⬇️ Descargar Excel Comparativo',
+                data=xls_comp,
+                file_name=nombre_base + '.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                use_container_width=True, type='primary',
+            )
+
+        with col_pdf:
+            st.write('**PDF** — Carátula, índice, comparación general y sección detallada por sucursal.')
+            with st.spinner('Generando PDF (puede tardar unos segundos)...'):
+                pdf_comp = generar_pdf_comparacion(datos, metas, df_comp)
+            st.download_button(
+                '⬇️ Descargar PDF Comparativo',
+                data=pdf_comp,
+                file_name=nombre_base + '.pdf',
+                mime='application/pdf',
+                use_container_width=True, type='primary',
+            )
 
     # ----------------------------------------------------------------
     # TABS individuales por sucursal
