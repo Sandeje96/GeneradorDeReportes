@@ -328,11 +328,11 @@ def _graf_comp_agrupado(df_comp, cols, titulo):
                     text=df_comp[col].apply(lambda v: f'${v/1e6:.1f}M'),
                     textposition='outside')
     fig.update_layout(
-        barmode='group', title=titulo, title_font_color=C_AZUL,
+        barmode='group',
         plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
         yaxis=dict(tickformat='$,.0f', gridcolor='#EEEEEE'),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02),
-        margin=dict(l=10, r=10, t=50, b=20),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0.0, xanchor='left'),
+        margin=dict(l=10, r=10, t=60, b=20),
         height=420,
     )
     return fig
@@ -381,16 +381,14 @@ def _graf_top_productos_comp(datos, metrica, label, n=10):
     fig = px.bar(
         df_plot, x=metrica, y='desc_corta', color='sucursal',
         orientation='h', barmode='group',
-        title=f'Top {n} Productos por {label} — Comparacion por Sucursal',
         labels={metrica: label, 'desc_corta': '', 'sucursal': 'Sucursal'},
         color_discrete_sequence=COLORES_SUCURSALES,
     )
     fig.update_layout(
         plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
-        title_font_color=C_AZUL,
         xaxis=dict(tickformat=',.0f', gridcolor='#EEEEEE'),
         yaxis=dict(tickfont=dict(size=9)),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0.0, xanchor='left'),
         margin=dict(l=10, r=20, t=60, b=20),
         height=max(400, n * 45 + 100),
     )
