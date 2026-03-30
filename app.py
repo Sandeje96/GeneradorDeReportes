@@ -79,8 +79,12 @@ def _nombre_sucursal(uploaded_file, meta):
 
 @st.cache_data(show_spinner=False)
 def _cargar_pdf(pdf_bytes):
+    import traceback
     buf = io.BytesIO(pdf_bytes)
-    df, meta, totals = extract_pdf(buf, verbose=False)
+    try:
+        df, meta, totals = extract_pdf(buf, verbose=False)
+    except Exception as e:
+        raise RuntimeError(f"Error al leer el PDF: {type(e).__name__}: {e}\n{traceback.format_exc()}") from e
     return df, meta, totals
 
 
