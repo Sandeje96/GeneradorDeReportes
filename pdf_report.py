@@ -185,7 +185,15 @@ class _PetriDoc(BaseDocTemplate):
 
 def _fig_img(fig, avail_w, avail_h, w_px=1500, h_px=800):
     """Exporta un gráfico plotly a PNG y devuelve un Image flowable."""
-    png = fig.to_image(format='png', width=w_px, height=h_px, scale=1.5)
+    try:
+        png = fig.to_image(format='png', width=w_px, height=h_px, scale=1.5)
+    except Exception as e:
+        # Fallback: devolver un placeholder si kaleido falla
+        placeholder = (
+            f'<font color="#E74C3C"><b>[Gráfico no disponible: {type(e).__name__}]</b></font>'
+        )
+        return Paragraph(placeholder, _sty('err', fontSize=11, alignment=TA_CENTER,
+                                          textColor=HexColor('#E74C3C')))
     buf = io.BytesIO(png)
     ar = h_px / w_px
     draw_w = min(avail_w, avail_h / ar)
@@ -740,13 +748,13 @@ def generar_pdf_comparacion(datos, metas, df_comp):
 
     # ── SECCIÓN A: Comparación General ────────────────────────────────────────
 
-    # A1 — Tabla resumen
+    # A1 — Tabla resumen (portrait)
     story += _titulo_seccion('A1 · Resumen Comparativo de Sucursales')
     story.append(Spacer(1, 4))
     story.append(_comp_table(df_comp, wp))
-    story.append(PageBreak())
+    # Sin PageBreak extra — NextPageTemplate+PageBreak de A2 ya rompe la página
 
-    # A2 — Ventas/Costo/Rentabilidad
+    # A2 — Ventas/Costo/Rentabilidad (landscape)
     story += [NextPageTemplate('landscape'), PageBreak()]
     story.append(_fig_img(_graf_comp_grouped(df_comp), wl, hl))
 

@@ -1,0 +1,7 @@
+libgconf-2-4
+libatk1.0-0
+libgtk-3-0
+libxss1
+libgbm1
+libnss3
+libasound2

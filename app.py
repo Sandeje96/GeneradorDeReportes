@@ -107,8 +107,8 @@ def _grafico_barras_h(df, x_col, y_col, titulo, x_label, color=C_AZUL, n=15):
         plot_bgcolor='white', paper_bgcolor='white',
         font_family='Arial', title_font_size=14, title_font_color=C_AZUL,
         xaxis=dict(gridcolor='#EEEEEE', tickformat=',.0f'),
-        yaxis=dict(tickfont=dict(size=10)),
-        margin=dict(l=10, r=20, t=40, b=20), height=420,
+        yaxis=dict(tickfont=dict(size=10), automargin=True),
+        margin=dict(l=320, r=20, t=40, b=20), height=420,
     )
     return fig
 
@@ -132,7 +132,7 @@ def _grafico_pareto(pareto_df, n=50):
                     range=[0, 105], tickformat='.0f', ticksuffix='%'),
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
         plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
-        height=420, margin=dict(l=10, r=10, t=50, b=80),
+        height=420, margin=dict(l=70, r=10, t=50, b=80),
     )
     fig.add_hline(y=80, line_dash='dash', line_color=C_ROJO,
                   yref='y2', annotation_text='80%', annotation_position='right')
@@ -346,7 +346,7 @@ def _graf_comp_agrupado(df_comp, cols, titulo):
         plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
         yaxis=dict(tickformat='$,.0f', gridcolor='#EEEEEE'),
         legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0.0, xanchor='left'),
-        margin=dict(l=10, r=10, t=60, b=20),
+        margin=dict(l=70, r=10, t=60, b=20),
         height=420,
     )
     return fig
@@ -427,7 +427,7 @@ def _graf_dist_margen_comp(datos):
         plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
         yaxis=dict(ticksuffix='%', gridcolor='#EEEEEE'),
         legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0.0, xanchor='left'),
-        margin=dict(l=10, r=10, t=80, b=20), height=420,
+        margin=dict(l=70, r=10, t=80, b=20), height=420,
     )
     return fig
 
