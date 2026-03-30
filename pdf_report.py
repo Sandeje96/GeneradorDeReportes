@@ -253,7 +253,7 @@ def _graf_pareto(pareto_df, pareto_stats):
                     side='right', range=[0, 110]),
         xaxis=dict(title='Productos (orden descendente de facturación)', gridcolor='#EEEEEE'),
         legend=dict(orientation='h', y=1.02, x=0.0, xanchor='left', yanchor='bottom'),
-        margin=dict(l=20, r=70, t=70, b=40),
+        margin=dict(l=100, r=70, t=70, b=40),
         height=640, width=1400,
         shapes=[
             dict(type='line', x0=n80, x1=n80, y0=0, y1=1, yref='paper',
@@ -305,9 +305,9 @@ def _graf_comp_grouped(df_comp):
                    font=dict(size=17, color=PC_AZUL, family='Arial')),
         plot_bgcolor='white', paper_bgcolor='white',
         font=dict(family='Arial', size=12),
-        yaxis=dict(tickformat='$,.0f', gridcolor='#EEEEEE', title='$ Pesos AR'),
+        yaxis=dict(tickformat='$,.0f', gridcolor='#EEEEEE', title='$ Pesos AR', automargin=True),
         legend=dict(orientation='h', y=1.02, x=0.0, xanchor='left', yanchor='bottom'),
-        margin=dict(l=20, r=20, t=80, b=40),
+        margin=dict(l=100, r=20, t=80, b=40),
         height=600, width=1400,
     )
     return fig
@@ -362,7 +362,7 @@ def _graf_comp_margen_dist(datos):
         font=dict(family='Arial', size=12),
         yaxis=dict(ticksuffix='%', gridcolor='#EEEEEE', title='% de productos'),
         legend=dict(orientation='h', y=1.02, x=0.0, xanchor='left', yanchor='bottom'),
-        margin=dict(l=20, r=20, t=80, b=40),
+        margin=dict(l=70, r=20, t=80, b=40),
         height=550, width=1200,
     )
     return fig
