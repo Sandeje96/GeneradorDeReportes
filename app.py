@@ -412,12 +412,10 @@ def _graf_dist_margen_comp(datos):
                     textposition='inside')
     fig.update_layout(
         barmode='stack',
-        title='Distribución de Márgenes por Sucursal (% productos)',
-        title_font_color=C_AZUL,
         plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
         yaxis=dict(ticksuffix='%', gridcolor='#EEEEEE'),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02),
-        margin=dict(l=10, r=10, t=60, b=20), height=400,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0.0, xanchor='left'),
+        margin=dict(l=10, r=10, t=80, b=20), height=420,
     )
     return fig
 
