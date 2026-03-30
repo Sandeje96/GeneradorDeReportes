@@ -401,9 +401,9 @@ def _graf_top_productos_comp(datos, metrica, label, n=10):
     fig.update_layout(
         plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
         xaxis=dict(tickformat=',.0f', gridcolor='#EEEEEE'),
-        yaxis=dict(tickfont=dict(size=9)),
+        yaxis=dict(tickfont=dict(size=9), automargin=True),
         legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0.0, xanchor='left'),
-        margin=dict(l=10, r=20, t=60, b=20),
+        margin=dict(l=320, r=20, t=60, b=20),
         height=max(400, n * 45 + 100),
     )
     return fig

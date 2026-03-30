@@ -212,9 +212,9 @@ def _graf_barras_h(df, col_val, titulo, xlabel, color=PC_AZUL, n=15, fmt_money=T
         plot_bgcolor='white', paper_bgcolor='white',
         font=dict(family='Arial', size=11),
         xaxis=dict(tickformat=',.0f', gridcolor='#EEEEEE', title=xlabel),
-        yaxis=dict(tickfont=dict(size=9)),
-        margin=dict(l=20, r=110, t=60, b=40),
-        height=700, width=1400,
+        yaxis=dict(tickfont=dict(size=10), automargin=True),
+        margin=dict(l=400, r=120, t=60, b=40),
+        height=700, width=1500,
     )
     return fig
 
@@ -325,10 +325,10 @@ def _graf_comp_top(datos, col_val, titulo, xlabel, n=10):
         plot_bgcolor='white', paper_bgcolor='white',
         font=dict(family='Arial', size=11),
         xaxis=dict(tickformat=',.0f', gridcolor='#EEEEEE'),
-        yaxis=dict(tickfont=dict(size=9)),
+        yaxis=dict(tickfont=dict(size=10), automargin=True),
         legend=dict(orientation='h', y=1.02, x=0.0, xanchor='left', yanchor='bottom'),
-        margin=dict(l=20, r=20, t=80, b=40),
-        height=max(500, n * 55 + 130), width=1400,
+        margin=dict(l=400, r=20, t=80, b=40),
+        height=max(500, n * 55 + 130), width=1500,
     )
     return fig
 
@@ -666,7 +666,7 @@ def generar_pdf(analisis, metadata):
     story.append(Paragraph(
         f'Generado el {date.today().strftime("%d/%m/%Y")}  ·  Sucursal: {suc}  ·  Período: {fd} al {fh}',
         S['small']))
-    story.append(PageBreak())
+    # Sin PageBreak extra — _story_sucursal ya inicia con su propio PageBreak
 
     # ── Secciones de contenido ─────────────────────────────────────────────────
     story += _story_sucursal(suc, analisis, metadata, AVAIL_P, AVAIL_L,
