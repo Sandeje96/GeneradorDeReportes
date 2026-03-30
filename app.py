@@ -127,12 +127,13 @@ def _grafico_pareto(pareto_df, n=50):
         title='Analisis Pareto — Top %d Productos' % n,
         title_font_color=C_AZUL,
         xaxis=dict(tickangle=-45, tickfont=dict(size=8)),
-        yaxis=dict(title='Precio Venta ($)', tickformat='$,.0f', gridcolor='#EEEEEE'),
+        yaxis=dict(title='Precio Venta ($)', tickformat='$,.0f', gridcolor='#EEEEEE',
+                   automargin=True),
         yaxis2=dict(title='Acumulado %', overlaying='y', side='right',
-                    range=[0, 105], tickformat='.0f', ticksuffix='%'),
+                    range=[0, 105], tickformat='.0f', ticksuffix='%', automargin=True),
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
         plot_bgcolor='white', paper_bgcolor='white', font_family='Arial',
-        height=420, margin=dict(l=70, r=10, t=50, b=80),
+        height=420, margin=dict(l=90, r=70, t=50, b=80),
     )
     fig.add_hline(y=80, line_dash='dash', line_color=C_ROJO,
                   yref='y2', annotation_text='80%', annotation_position='right')
